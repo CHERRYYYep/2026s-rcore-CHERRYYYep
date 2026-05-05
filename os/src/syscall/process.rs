@@ -1,8 +1,9 @@
 //! Process management syscalls
-use crate::mm::{PTEFlags, PageTable, VirtAddr};
+use crate::config::PAGE_SIZE;
+use crate::mm::{MapPermission, PTEFlags, PageTable, VirtAddr};
 use crate::task::{
     change_program_brk, current_syscall_count, exit_current_and_run_next, get_current_token,
-    suspend_current_and_run_next,
+    mmap_current, munmap_current, suspend_current_and_run_next,
 };
 use crate::timer::get_time_us;
 use core::slice;
@@ -103,15 +104,42 @@ pub fn sys_trace(trace_request: usize, id: usize, data: usize) -> isize {
 }
 
 // YOUR JOB: Implement mmap.
-pub fn sys_mmap(_start: usize, _len: usize, _port: usize) -> isize {
-    trace!("kernel: sys_mmap NOT IMPLEMENTED YET!");
-    -1
+pub fn sys_mmap(start: usize, len: usize, port: usize) -> isize {
+    trace!("kernel: sys_mmap");
+    if len == 0 || start % PAGE_SIZE != 0 || port == 0 || (port & !0x7) != 0 {
+        return -1;
+    }
+    let mut permission = MapPermission::U;
+    if (port & 0x1) != 0 {
+        permission |= MapPermission::R;
+    }
+    if (port & 0x2) != 0 {
+        permission |= MapPermission::W;
+    }
+    if (port & 0x4) != 0 {
+        permission |= MapPermission::X;
+    }
+    if mmap_current(start, len, permission) {
+        0
+    } else {
+        -1
+    }
 }
 
 // YOUR JOB: Implement munmap.
-pub fn sys_munmap(_start: usize, _len: usize) -> isize {
-    trace!("kernel: sys_munmap NOT IMPLEMENTED YET!");
-    -1
+pub fn sys_munmap(start: usize, len: usize) -> isize {
+    trace!("kernel: sys_munmap");
+    if len == 0 || start % PAGE_SIZE != 0 {
+        return -1;
+    }
+    if start.checked_add(len).is_none() {
+        return -1;
+    }
+    if munmap_current(start, len) {
+        0
+    } else {
+        -1
+    }
 }
 /// change data segment size
 pub fn sys_sbrk(size: i32) -> isize {

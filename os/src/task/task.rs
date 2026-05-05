@@ -1,7 +1,6 @@
 //! Types related to task management
 use super::TaskContext;
-use crate::config::MAX_SYSCALL_NUM;
-use crate::config::TRAP_CONTEXT_BASE;
+use crate::config::{MAX_SYSCALL_NUM, TRAP_CONTEXT_BASE};
 use crate::mm::{
     kernel_stack_position, MapPermission, MemorySet, PhysPageNum, VirtAddr, KERNEL_SPACE,
 };
@@ -100,6 +99,34 @@ impl TaskControlBlock {
         } else {
             None
         }
+    }
+
+    /// Map a user framed area into current task address space.
+    pub fn mmap(&mut self, start: usize, len: usize, permission: MapPermission) -> bool {
+        let start_va = VirtAddr::from(start);
+        let end_va = VirtAddr::from(start + len);
+        let mut vpn = start_va.floor();
+        let end_vpn = end_va.ceil();
+        while vpn < end_vpn {
+            if self
+                .memory_set
+                .translate(vpn)
+                .map(|pte| pte.is_valid())
+                .unwrap_or(false)
+            {
+                return false;
+            }
+            vpn.0 += 1;
+        }
+        self.memory_set.insert_framed_area(start_va, end_va, permission);
+        true
+    }
+
+    /// Unmap an existing user framed area exactly matched by [start, start + len).
+    pub fn munmap(&mut self, start: usize, len: usize) -> bool {
+        let start_va = VirtAddr::from(start);
+        let end_va = VirtAddr::from(start + len);
+        self.memory_set.remove_framed_area(start_va, end_va)
     }
 
     /// Record one syscall invocation for the task.
